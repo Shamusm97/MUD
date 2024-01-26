@@ -57,84 +57,91 @@ def receive_message(client_socket):
         # and that's also a cause when we receive an empty message
         return False
 
-while True:
+def main_loop():
+    while True:
 
-    # Calls Unix select() system call or Windows select() WinSock call with three parameters:
-    #   - rlist - sockets to be monitored for incoming data
-    #   - wlist - sockets for data to be send to (checks if for example buffers are not full and socket is ready to send some data)
-    #   - xlist - sockets to be monitored for exceptions (we want to monitor all sockets for errors, so we can use rlist)
-    # Returns lists:
-    #   - reading - sockets we received some data on (that way we don't have to check sockets manually)
-    #   - writing - sockets ready for data to be send thru them
-    #   - errors  - sockets with some exceptions
-    # This is a blocking call, code execution will "wait" here and "get" notified in case any action should be taken
-    read_sockets, _, exception_sockets = select.select(sockets_list, [], sockets_list)
+        # Calls Unix select() system call or Windows select() WinSock call with three parameters:
+        #   - rlist - sockets to be monitored for incoming data
+        #   - wlist - sockets for data to be send to (checks if for example buffers are not full and socket is ready to send some data)
+        #   - xlist - sockets to be monitored for exceptions (we want to monitor all sockets for errors, so we can use rlist)
+        # Returns lists:
+        #   - reading - sockets we received some data on (that way we don't have to check sockets manually)
+        #   - writing - sockets ready for data to be send thru them
+        #   - errors  - sockets with some exceptions
+        # This is a blocking call, code execution will "wait" here and "get" notified in case any action should be taken
+        read_sockets, _, exception_sockets = select.select(sockets_list, [], sockets_list)
 
+        # Iterate over notified sockets
+        for notified_socket in read_sockets:
+            
+            # If notified socket is a server socket - new connection, accept it
+            if notified_socket == server_socket:
 
-    # Iterate over notified sockets
-    for notified_socket in read_sockets:
+                # Accept new connection
+                client_socket, client_address = server_socket.accept()
+                initial_message = receive_user(client_socket)
 
-        # If notified socket is a server socket - new connection, accept it
-        if notified_socket == server_socket:
+                print('Accepted new connection from {}:{}, username: {}'.format(*client_address, initial_message['data'].decode('utf-8')))
 
-            # Accept new connection
-            # That gives us new socket - client socket, connected to this given client only, it's unique for that client
-            # The other returned object is ip/port set
-            client_socket, client_address = server_socket.accept()
+            # Else existing socket is sending a message
+            else:
 
-            # Client should send his name right away, receive it
-            user = receive_message(client_socket)
+                message = receive_message(notified_socket)
 
-            # If False - client disconnected before he sent his name
-            if user is False:
-                continue
+                # If False, client disconnected, cleanup
+                if message is False:
+                    cleanup_socket(notified_socket)
+                    continue
 
-            # Add accepted socket to select.select() list
-            sockets_list.append(client_socket)
+                # Get user by notified socket, so we will know who sent the message
+                user = clients[notified_socket]
 
-            # Also save username and username header
-            clients[client_socket] = user
+                print(f'Received message from {user["data"].decode("utf-8")}: {message["data"].decode("utf-8")}')
 
-            print('Accepted new connection from {}:{}, username: {}'.format(*client_address, user['data'].decode('utf-8')))
+                # Iterate over connected clients and broadcast message
+                for client_socket in clients:
+                    broadcast_message(message, notified_socket, user, client_socket)
 
-        # Else existing socket is sending a message
-        else:
+        # It's not really necessary to have this, but will handle some socket exceptions just in case
+        for notified_socket in exception_sockets:
 
-            # Receive message
-            message = receive_message(notified_socket)
+            # Remove from list for socket.socket()
+            sockets_list.remove(notified_socket)
 
-            # If False, client disconnected, cleanup
-            if message is False:
-                print('Closed connection from: {}'.format(clients[notified_socket]['data'].decode('utf-8')))
+            # Remove from our list of users
+            del clients[notified_socket]
 
-                # Remove from list for socket.socket()
-                sockets_list.remove(notified_socket)
+def receive_user(client_socket):
+    # Client should send his name right away, receive it
+    user = receive_message(client_socket)
 
-                # Remove from our list of users
-                del clients[notified_socket]
+    # If False - client disconnected before he sent his name
+    if user is False:
+        pass
+    
+    sockets_list.append(client_socket)
+    
+    # Add accepted socket to select.select() list
+    clients[client_socket] = user
 
-                continue
+    return user
 
-            # Get user by notified socket, so we will know who sent the message
-            user = clients[notified_socket]
+def broadcast_message(message, notified_socket, user, client_socket):
+    # Don't sent it to sender
+    if client_socket != notified_socket:
+        # Send user and message (both with their headers)
+        # We are reusing here message header sent by sender, and saved username header send by user when he connected
+        client_socket.send(user['header'] + user['data'] + message['header'] + message['data'])
 
-            print(f'Received message from {user["data"].decode("utf-8")}: {message["data"].decode("utf-8")}')
-
-            # Iterate over connected clients and broadcast message
-            for client_socket in clients:
-
-                # But don't sent it to sender
-                if client_socket != notified_socket:
-
-                    # Send user and message (both with their headers)
-                    # We are reusing here message header sent by sender, and saved username header send by user when he connected
-                    client_socket.send(user['header'] + user['data'] + message['header'] + message['data'])
-
-    # It's not really necessary to have this, but will handle some socket exceptions just in case
-    for notified_socket in exception_sockets:
-
-        # Remove from list for socket.socket()
+def cleanup_socket(notified_socket):
+    try:
+        print('Closed connection from: {}'.format(clients[notified_socket]['data'].decode('utf-8')))
         sockets_list.remove(notified_socket)
-
-        # Remove from our list of users
         del clients[notified_socket]
+        return True
+    except Exception as e:
+        print(e)
+        return False
+
+if __name__ == "__main__":
+    main_loop()

@@ -7,14 +7,16 @@ class LoginScreen(tk.Frame):
         tk.Frame.__init__(self, controller)
         self.controller = controller  # Store a reference to the controller
 
-        # Create a label and entry for the username
+        # Create a label and entry for the host
         tk.Label(self, text="Host").grid(row=0, column=0)
         self.host_entry = tk.Entry(self)
+        self.host_entry.insert(0, "localhost")
         self.host_entry.grid(row=0, column=1)
 
-        # Create a label and entry for the password
+        # Create a label and entry for the username
         tk.Label(self, text="Username").grid(row=1, column=0)
         self.username_entry = tk.Entry(self)
+        self.username_entry.insert(0, "Anonymous")
         self.username_entry.grid(row=1, column=1)
 
         # Create a login button
