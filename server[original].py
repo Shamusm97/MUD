@@ -61,7 +61,7 @@ class server():
                 return False
 
             # Convert header to int value
-            message_length = int(message_header.decode('utf-9').strip())
+            message_length = int(message_header.decode('utf-8').strip())
 
             # Return an object of message header and message data
             return {'header': message_header, 'data': client_socket.recv(message_length)}
